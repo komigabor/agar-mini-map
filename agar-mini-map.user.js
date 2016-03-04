@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         agar-mini-map
 // @namespace    http://github.com/dimotsai/
-// @version      0.48
+// @version      0.48.1
 // @description  This script will show a mini map and your location on agar.io
 // @author       dimotsai
 // @license      MIT
@@ -31,7 +31,7 @@ window.msgpack = this.msgpack;
     var player_name = [];
     var players = [];
     var id_players = [];
-    var cells = [];
+    var cells = {};
     var current_cell_ids = [];
     var start_x = -7000,
         start_y = -7000,
@@ -275,14 +275,22 @@ window.msgpack = this.msgpack;
     }
 
     function miniMapReset() {
-        cells = [];
+        cells = {};
         window.mini_map_tokens = [];
     }
 
+    function destroyCells(cell_collection) {
+        for (var idx in cell_collection) {
+            if(cell_collection[idx]) cell_collection[idx].destroy();
+        }
+    }
+
     function miniMapInit() {
+        destroyCells(cells);
+
         window.mini_map_tokens = [];
 
-        cells = [];
+        cells = {};
         current_cell_ids = [];
         start_x = -7000;
         start_y = -7000;
@@ -786,6 +794,21 @@ window.msgpack = this.msgpack;
         miniMapSendRawData(msgpack.pack(packet));
     }
 
+    // clean up cell array
+    // ensures that old unreferenced cells are destroyed
+    function clearOldCells() {
+        var cells2delete = [];
+        for (i in cells) {
+            if (cells[i]) {
+                var elapsedTimeInSec = ((+new Date) - cells[i].updateTime) / 1000;
+                if (elapsedTimeInSec > 10) {
+                    cells2delete.push(cells[i]);
+                }
+            }
+        };
+        destroyCells(cells2delete);
+    }
+
     // extract the type of packet and dispatch it to a corresponding extractor
     function extractPacket(event) {
         var c = 0;
@@ -911,6 +934,7 @@ window.msgpack = this.msgpack;
 
     $(window.document).ready(function() {
         miniMapInit();
+        window.setInterval(clearOldCells, 1000);
     });
 
     $(window).load(function() {
