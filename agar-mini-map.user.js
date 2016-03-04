@@ -25,20 +25,32 @@ window.msgpack = this.msgpack;
         enableUniqueCellColor: true
     };
 
+    var DEFAULT_SIZE = 14000;
+    var DEFAULT_SIZE_2 = DEFAULT_SIZE / 2;
+
     // game states
     var agar_server = null;
     var map_server = null;
     var player_name = [];
     var players = [];
+    // !note: these default values have to be set in miniMapInit
     var id_players = [];
     var cells = {};
     var current_cell_ids = [];
-    var start_x = -7000,
-        start_y = -7000,
-        end_x = 7000,
-        end_y = 7000,
+    var start_x = -DEFAULT_SIZE_2,
+        start_y = -DEFAULT_SIZE_2,
+        end_x = DEFAULT_SIZE_2,
+        end_y = DEFAULT_SIZE_2,
         length_x = 14000,
         length_y = 14000;
+    var edge_top = null,
+        edge_right = null,
+        edge_bottom = null,
+        edge_left = null;
+    var offset_x = null,
+        offset_y = null,
+        map_size_x = 14000,
+        map_size_y = 14000;
     var render_timer = null;
     var last_server = null;
 
@@ -80,8 +92,7 @@ window.msgpack = this.msgpack;
                             );
                         }
 
-                        var size_n = cell.size/length_x;
-                        miniMapUpdateToken(cell.id, (cell.x - start_x)/length_x, (cell.y - start_y)/length_y, size_n);
+                        miniMapUpdateToken(cell.id, cell.x, cell.y, cell.size);
                     }
 
                     for (var i=0; i < packet.data.deletion.length; ++i) {
@@ -139,14 +150,27 @@ window.msgpack = this.msgpack;
     }
 
     function miniMapRender() {
+        var fullmode = offset_x != null && offset_y != null;
         var canvas = window.mini_map;
         var ctx = canvas.getContext('2d');
         ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        // if (options.enableAxes) miniMapDrawMiddleCross();
+
         for (var id in window.mini_map_tokens) {
             var token = window.mini_map_tokens[id];
-            var x = token.x * canvas.width;
-            var y = token.y * canvas.height;
-            var size = token.size * canvas.width;
+            var x, y;
+            if (fullmode) {
+                x = (token.x - offset_x) / map_size_x + 0.5;
+                y = (token.y - offset_y) / map_size_y + 0.5;
+            }
+            else {
+                x = (token.x - start_x) / length_x;
+                y = (token.y - start_y) / length_y;
+            }
+            x *= canvas.width;
+            y *= canvas.height;
+            var size = token.size / (fullmode ? map_size_x : length_x) * canvas.width;
             var myColor = null;
             var isMyCell = false;
 
@@ -161,17 +185,14 @@ window.msgpack = this.msgpack;
             }
 
             if (options.enableCross && -1 != current_cell_ids.indexOf(token.id)) {
-                miniMapDrawCross(token.x, token.y, myColor);
+                miniMapDrawCross(x, y, myColor);
                 isMyCell = true;
             }
-
-            if (options.enableAxes && -1 != current_cell_ids.indexOf(token.id))
-                miniMapDrawMiddleCross()
 
             if (id_players[id] !== undefined) {
                 // Draw you party member's crosshair
                 if (options.enableCross && !isMyCell) {
-                    miniMapDrawCross(token.x, token.y, token.color);
+                    miniMapDrawCross(x, y, token.color);
                 }
 
                 ctx.font = size * 2 + 'px Arial';
@@ -196,6 +217,7 @@ window.msgpack = this.msgpack;
             } else {
                 ctx.fillStyle = token.color;
             }
+            ctx.strokeStyle = ctx.fillStyle;
             ctx.fill();
         };
     }
@@ -205,10 +227,10 @@ window.msgpack = this.msgpack;
         var ctx = canvas.getContext('2d');
         ctx.lineWidth = 0.5;
         ctx.beginPath();
-        ctx.moveTo(0, y * canvas.height);
-        ctx.lineTo(canvas.width, y * canvas.height);
-        ctx.moveTo(x * canvas.width, 0);
-        ctx.lineTo(x * canvas.width, canvas.height);
+        ctx.moveTo(0, y);
+        ctx.lineTo(canvas.width, y);
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, canvas.height);
         ctx.closePath();
         ctx.strokeStyle = color || '#FFFFFF';
         ctx.stroke();
@@ -292,12 +314,22 @@ window.msgpack = this.msgpack;
 
         cells = {};
         current_cell_ids = [];
-        start_x = -7000;
-        start_y = -7000;
-        end_x = 7000;
-        end_y = 7000;
+        start_x = -DEFAULT_SIZE_2;
+        start_y = -DEFAULT_SIZE_2;
+        end_x = DEFAULT_SIZE_2;
+        end_y = DEFAULT_SIZE_2;
         length_x = 14000;
         length_y = 14000;
+        offset_x = null;
+        offset_y = null;
+        map_size_x = 14000,
+        map_size_y = 14000;
+        edge_top = null,
+        edge_right = null,
+        edge_bottom = null,
+        edge_left = null;
+        map_size_x = DEFAULT_SIZE;
+        map_size_y = DEFAULT_SIZE;
 
         // get last used map server address from cookie if existent
         var cookies = document.cookie.replace(/ /g,'').split(";");
@@ -615,8 +647,7 @@ window.msgpack = this.msgpack;
                         );
                     }
 
-                    var size_n = this.nSize/length_x;
-                    miniMapUpdateToken(this.id, (this.nx - start_x)/length_x, (this.ny - start_y)/length_y, size_n);
+                    miniMapUpdateToken(this.id, this.nx, this.ny, this.nSize);
                 }
             }
 
@@ -809,6 +840,10 @@ window.msgpack = this.msgpack;
         destroyCells(cells2delete);
     }
 
+    function detectEdge(edge, center, point) {
+        return Math.abs(point - edge) < Math.abs(point - center);
+    }
+
     // extract the type of packet and dispatch it to a corresponding extractor
     function extractPacket(event) {
         var c = 0;
@@ -838,11 +873,57 @@ window.msgpack = this.msgpack;
                 start_x = data.getFloat64(c, !0), c += 8,
                 start_y = data.getFloat64(c, !0), c += 8,
                 end_x = data.getFloat64(c, !0), c += 8,
-                end_y = data.getFloat64(c, !0), c += 8,
+                end_y = data.getFloat64(c, !0), c += 8;
                 center_x = (start_x + end_x) / 2,
-                center_y = (start_y + end_y) / 2,
+                center_y = (start_y + end_y) / 2;
                 length_x = Math.abs(start_x - end_x),
                 length_y = Math.abs(start_y - end_y);
+
+                if (edge_top === null || edge_left === null 
+                        || edge_bottom === null || edge_right === null) {
+
+                    // find greatest mass
+                    var bigcell;
+                    for (i in current_cell_ids) {
+                        if(!bigcell || cells[current_cell_ids[i]].nSize > bigcell.nSize) {
+                            bigcell = cells[current_cell_ids[i]];
+                        }
+                    }
+
+                    // detect edges
+                    if (bigcell) {
+                        if (edge_top === null && detectEdge(start_y, center_y, bigcell.ny))
+                            edge_top = start_y;
+                        if (edge_right === null && detectEdge(end_x, center_x, bigcell.nx))
+                            edge_right = end_x;    
+                        if (edge_bottom === null && detectEdge(end_y, center_y, bigcell.ny))
+                            edge_bottom = end_y;
+                        if (edge_left === null && detectEdge(start_x, center_x, bigcell.nx))
+                            edge_left = start_x;
+                        console.log(edge_top, edge_right, edge_bottom, edge_left);
+                    } else {
+                        console.warn('no big cell');
+                    }
+
+                    map_size_x = edge_left !== null && edge_right !== null 
+                        ? Math.abs(edge_right - edge_left) : DEFAULT_SIZE;
+                    map_size_y = edge_top !== null && edge_bottom !== null 
+                        ? Math.abs(edge_bottom - edge_top) : DEFAULT_SIZE;
+
+                    if (edge_left !== null) {
+                        offset_x = start_x + map_size_x / 2;
+                    } else if (edge_right !== null) {
+                        offset_x = end_x - map_size_x / 2;
+                    }
+
+                    if (edge_top !== null) {
+                        offset_y = start_y + map_size_y / 2;
+                    } else if (edge_bottom !== null) {
+                        offset_y = end_y - map_size_y / 2;
+                    }
+
+                    console.log("offset", offset_x, offset_y);
+                }
         }
     };
 
