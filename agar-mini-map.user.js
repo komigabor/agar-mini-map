@@ -149,8 +149,20 @@ window.msgpack = this.msgpack;
         map_server = ws;
     }
 
+    function getCanvasCoordX(canvas, coord_x) {
+        return (offset_x !== null && offset_y !== null) // full map mode
+            ? ((coord_x - offset_x) / map_size_x + 0.5) * canvas.width
+            : ((coord_x - start_x) / length_x) * canvas.width;
+    }
+
+    function getCanvasCoordY(canvas, coord_y) {
+        return (offset_x !== null && offset_y !== null) // full map mode
+            ? ((coord_y - offset_y) / map_size_y + 0.5) * canvas.height
+            : ((coord_y - start_y) / length_y) * canvas.height;
+    }
+
     function miniMapRender() {
-        var fullmode = offset_x != null && offset_y != null;
+        var fullmode = offset_x !== null && offset_y !== null;
         var canvas = window.mini_map;
         var ctx = canvas.getContext('2d');
         ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -159,17 +171,8 @@ window.msgpack = this.msgpack;
 
         for (var id in window.mini_map_tokens) {
             var token = window.mini_map_tokens[id];
-            var x, y;
-            if (fullmode) {
-                x = (token.x - offset_x) / map_size_x + 0.5;
-                y = (token.y - offset_y) / map_size_y + 0.5;
-            }
-            else {
-                x = (token.x - start_x) / length_x;
-                y = (token.y - start_y) / length_y;
-            }
-            x *= canvas.width;
-            y *= canvas.height;
+            var x = getCanvasCoordX(canvas, token.x), 
+                y = getCanvasCoordY(canvas, token.y);
             var size = token.size / (fullmode ? map_size_x : length_x) * canvas.width;
             var myColor = null;
             var isMyCell = false;
@@ -219,6 +222,16 @@ window.msgpack = this.msgpack;
             }
             ctx.strokeStyle = ctx.fillStyle;
             ctx.fill();
+
+            if (fullmode) {
+                ctx.strokeStyle = "red";
+                ctx.lineWidth = 1;
+                var x0 = getCanvasCoordX(canvas, start_x), 
+                    y0 = getCanvasCoordY(canvas, start_y),
+                    x1 = getCanvasCoordX(canvas, end_x), 
+                    y1 = getCanvasCoordY(canvas, end_y);
+                ctx.strokeRect(x0, y0, x1 - x0, y1 - y0);
+            }
         };
     }
 
@@ -339,7 +352,7 @@ window.msgpack = this.msgpack;
                 last_server = c_tuple[1];
             }
         }
-        if (last_server == null) {
+        if (last_server === null) {
             last_server = "ws://127.0.0.1:34343";
         }
 
@@ -892,37 +905,40 @@ window.msgpack = this.msgpack;
 
                     // detect edges
                     if (bigcell) {
-                        if (edge_top === null && detectEdge(start_y, center_y, bigcell.ny))
-                            edge_top = start_y;
-                        if (edge_right === null && detectEdge(end_x, center_x, bigcell.nx))
-                            edge_right = end_x;    
-                        if (edge_bottom === null && detectEdge(end_y, center_y, bigcell.ny))
-                            edge_bottom = end_y;
-                        if (edge_left === null && detectEdge(start_x, center_x, bigcell.nx))
-                            edge_left = start_x;
-                        console.log(edge_top, edge_right, edge_bottom, edge_left);
+                        if (edge_top === null && detectEdge(start_y, center_y, bigcell.ny)) {
+                            edge_top = start_y, console.log("edge_top = " + edge_top);
+                            if (edge_bottom !== null) map_size_y = edge_bottom - edge_top; // Math.abs not needed yet
+                        }
+                        if (edge_right === null && detectEdge(end_x, center_x, bigcell.nx)) {
+                            edge_right = end_x, console.log("edge_right = " + edge_right);
+                            if (edge_left !== null) map_size_x = edge_right - edge_left; // Math.abs not needed yet
+                        }
+                        if (edge_bottom === null && detectEdge(end_y, center_y, bigcell.ny)) {
+                            edge_bottom = end_y, console.log("edge_bottom = " + edge_bottom);
+                            if (edge_top !== null) map_size_y = edge_bottom - edge_top; // Math.abs not needed yet
+                        }
+                        if (edge_left === null && detectEdge(start_x, center_x, bigcell.nx)) {
+                            edge_left = start_x, console.log("edge_left = " + edge_left);
+                            if (edge_right !== null) map_size_x = edge_right - edge_left; // Math.abs not needed yet
+                        }
+                        // console.log("edges: " + "top " + edge_top + ", right " + edge_right + ", bottom " + edge_bottom + ", left " + edge_left);
                     } else {
                         console.warn('no big cell');
                     }
 
-                    map_size_x = edge_left !== null && edge_right !== null 
-                        ? Math.abs(edge_right - edge_left) : DEFAULT_SIZE;
-                    map_size_y = edge_top !== null && edge_bottom !== null 
-                        ? Math.abs(edge_bottom - edge_top) : DEFAULT_SIZE;
-
                     if (edge_left !== null) {
-                        offset_x = start_x + map_size_x / 2;
+                        offset_x = edge_left + map_size_x / 2;
                     } else if (edge_right !== null) {
-                        offset_x = end_x - map_size_x / 2;
+                        offset_x = edge_right - map_size_x / 2;
                     }
 
                     if (edge_top !== null) {
-                        offset_y = start_y + map_size_y / 2;
+                        offset_y = edge_top + map_size_y / 2;
                     } else if (edge_bottom !== null) {
-                        offset_y = end_y - map_size_y / 2;
+                        offset_y = edge_bottom - map_size_y / 2;
                     }
 
-                    console.log("offset", offset_x, offset_y);
+                    // console.log("offset: " + offset_x + "x" + offset_y);
                 }
         }
     };
